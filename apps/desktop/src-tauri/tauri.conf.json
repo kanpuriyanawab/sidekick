@@ -1,0 +1,25 @@
+{
+  "build": {
+    "beforeDevCommand": "pnpm --filter @sidekick/desktop dev",
+    "beforeBuildCommand": "pnpm --filter @sidekick/desktop build",
+    "devPath": "http://localhost:5173",
+    "distDir": "../dist"
+  },
+  "package": {
+    "productName": "Sidekick",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "windows": [
+      {
+        "title": "Sidekick",
+        "width": 1280,
+        "height": 820,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  }
+}

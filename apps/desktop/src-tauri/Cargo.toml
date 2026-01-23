@@ -1,0 +1,17 @@
+[package]
+name = "sidekick"
+version = "0.1.0"
+description = "Sidekick desktop app"
+authors = ["Sidekick"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "1.5", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "1.5", features = [] }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

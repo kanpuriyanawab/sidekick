@@ -1,0 +1,14 @@
+{
+  "name": "sidekick",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:desktop": "pnpm --filter @sidekick/desktop dev",
+    "dev:host": "pnpm --filter @sidekick/host dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint"
+  }
+}

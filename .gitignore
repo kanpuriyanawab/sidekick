@@ -1,0 +1,14 @@
+**/node_modules/**
+**/debug/**
+**/dist/**
+.DS_Store
+.env
+.env.*
+*.log
+out.txt
+codex_appserver_*.log
+apps/host/data/
+**/*.db
+**/*.db-shm
+**/*.db-wal
+apps/desktop/src-tauri/target/
