@@ -16,6 +16,7 @@ export interface WorkspaceContext {
   workspaceName?: string;
   systemPrompt?: string;
   sessionId?: string;
+  model?: string;
 }
 
 export interface TransportEventHandler {
@@ -81,7 +82,7 @@ export class CodexAppServerTransport implements CodexTransport {
   private approvalPolicy: string;
 
   constructor(options: CodexTransportOptions = {}) {
-    this.model = options.model ?? "gpt-5.1-codex";
+    this.model = options.model ?? "gpt-5.2-codex";
     this.sandbox = options.sandbox ?? "workspace-write";
     this.approvalPolicy = options.approvalPolicy ?? "on-request";
 
@@ -130,7 +131,7 @@ export class CodexAppServerTransport implements CodexTransport {
     await this.ready;
 
     const result = await this.rpc("thread/start", {
-      model: this.model,
+      model: context.model ?? this.model,
       cwd: context.workspaceRoot,
       approvalPolicy: this.approvalPolicy,
       sandbox: this.sandbox

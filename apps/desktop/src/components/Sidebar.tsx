@@ -7,7 +7,6 @@ interface SidebarProps {
   activeSessionId?: string;
   onSelectWorkspace: (id: string) => void;
   onSelectSession: (id: string) => void;
-  onNewWorkspace: () => void;
   onNewSession: () => void;
 }
 
@@ -18,43 +17,19 @@ export const Sidebar = ({
   activeSessionId,
   onSelectWorkspace,
   onSelectSession,
-  onNewWorkspace,
   onNewSession
 }: SidebarProps) => {
   return (
     <aside className="sidebar">
-      <div className="sidebar-header">
-        <div>
-          <p className="eyebrow">Workspaces</p>
-          <h1>Sidekick</h1>
-        </div>
-        <button className="ghost-button" onClick={onNewWorkspace}>
-          New
-        </button>
-      </div>
-
-      <div className="workspace-list">
-        {workspaces.length === 0 && <p className="muted">No workspaces yet.</p>}
-        {workspaces.map((workspace) => (
-          <button
-            key={workspace.id}
-            className={`workspace-card ${workspace.id === activeWorkspaceId ? "active" : ""}`}
-            onClick={() => onSelectWorkspace(workspace.id)}
-          >
-            <div>
-              <div className="workspace-name">{workspace.name}</div>
-              <div className="workspace-path">{workspace.rootPath}</div>
-            </div>
-          </button>
-        ))}
-      </div>
+      <h1 className="sidebar-title">Sidekick</h1>
+      <button className="new-task-button" onClick={onNewSession}>
+        <span className="new-task-icon">+</span>
+        New task
+      </button>
 
       <div className="sidebar-section">
         <div className="sidebar-row">
-          <h2>Sessions</h2>
-          <button className="ghost-button" onClick={onNewSession}>
-            New
-          </button>
+          <p className="sidebar-label">Recents</p>
         </div>
         <div className="session-list">
           {sessions.length === 0 && <p className="muted">No sessions yet.</p>}
@@ -69,6 +44,13 @@ export const Sidebar = ({
             </button>
           ))}
         </div>
+      </div>
+
+      <div className="sidebar-footer">
+        <button className="session-indicator" type="button">
+          <span className={`pulse-dot ${activeSessionId ? "active" : ""}`} />
+          {activeSessionId ? "Session active" : "No session"}
+        </button>
       </div>
     </aside>
   );

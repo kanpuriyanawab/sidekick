@@ -71,8 +71,12 @@ export const startServer = ({ port, dbPath }: HostServerOptions) => {
 
   app.post("/agent/send", async (req, res) => {
     try {
-      const { sessionId, message } = req.body as { sessionId: string; message: string };
-      const turnId = await agentManager.sendMessage(sessionId, message);
+      const { sessionId, message, model } = req.body as {
+        sessionId: string;
+        message: string;
+        model?: string;
+      };
+      const turnId = await agentManager.sendMessage(sessionId, message, model);
       res.json({ turnId });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });

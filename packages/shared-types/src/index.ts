@@ -232,6 +232,7 @@ export interface AgentSendInput {
   sessionId: string;
   message: string;
   attachments?: string[];
+  model?: string;
 }
 
 export interface ApprovalDecisionInput {

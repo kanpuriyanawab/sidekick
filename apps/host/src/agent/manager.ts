@@ -17,6 +17,7 @@ export class AgentManager {
   private store: Store;
   private transport: CodexTransport;
   private listeners: Set<EventListener> = new Set();
+  private sessionModels = new Map<string, string>();
 
   constructor(store: Store, transport: CodexTransport) {
     this.store = store;
@@ -29,13 +30,16 @@ export class AgentManager {
     return () => this.listeners.delete(listener);
   }
 
-  async sendMessage(sessionId: string, message: string): Promise<string> {
+  async sendMessage(sessionId: string, message: string, model?: string): Promise<string> {
     const session = this.store.getSession(sessionId);
     if (!session) {
       throw new Error(`Session not found: ${sessionId}`);
     }
 
-    const threadId = await this.ensureThread(session);
+    if (model) {
+      this.sessionModels.set(sessionId, model);
+    }
+    const threadId = await this.ensureThread(session, model);
     const transportTurnId = await this.transport.sendUserMessage(threadId, message);
     const turnId = this.store.createTurn(sessionId, message, transportTurnId);
 
@@ -67,7 +71,7 @@ export class AgentManager {
     }
   }
 
-  private async ensureThread(session: Session): Promise<string> {
+  private async ensureThread(session: Session, modelOverride?: string): Promise<string> {
     if (session.codexThreadId) {
       return session.codexThreadId;
     }
@@ -77,11 +81,13 @@ export class AgentManager {
       throw new Error(`Workspace not found: ${session.workspaceId}`);
     }
 
+    const model = modelOverride ?? this.sessionModels.get(session.id);
     const threadId = await this.transport.createThread({
       workspaceRoot: workspace.rootPath,
       workspaceName: workspace.name,
       systemPrompt: SYSTEM_PROMPT,
-      sessionId: session.id
+      sessionId: session.id,
+      model
     });
 
     session.codexThreadId = threadId;

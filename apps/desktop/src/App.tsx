@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { open as openDialog } from "@tauri-apps/api/dialog";
 import type {
   ApprovalDecision,
   ApprovalRequest,
@@ -12,7 +13,7 @@ import { ChatPanel, type ChatMessage } from "./components/ChatPanel";
 import { SessionModal } from "./components/SessionModal";
 import { Sidebar } from "./components/Sidebar";
 import { TimelinePanel } from "./components/TimelinePanel";
-import { WorkspaceModal } from "./components/WorkspaceModal";
+import { LogDrawer } from "./components/LogDrawer";
 
 const createMessage = (role: ChatMessage["role"], text: string, timestamp?: string): ChatMessage => ({
   id: `${role}_${Math.random().toString(36).slice(2, 8)}`,
@@ -20,16 +21,6 @@ const createMessage = (role: ChatMessage["role"], text: string, timestamp?: stri
   text,
   timestamp: timestamp ?? new Date().toISOString()
 });
-
-const defaultFilters: Record<string, boolean> = {
-  messages: true,
-  plans: true,
-  tools: true,
-  commands: true,
-  files: true,
-  approvals: true,
-  errors: true
-};
 
 const App = () => {
   const client = useMemo(() => createClient(), []);
@@ -41,13 +32,30 @@ const App = () => {
   const [assistantDraft, setAssistantDraft] = useState<string>("");
   const [planSteps, setPlanSteps] = useState<string[] | null>(null);
   const [events, setEvents] = useState<TransportEvent[]>([]);
-  const [filters, setFilters] = useState<Record<string, boolean>>(defaultFilters);
-  const [selectedEvent, setSelectedEvent] = useState<TransportEvent | undefined>();
   const [pendingApproval, setPendingApproval] = useState<ApprovalRequest | null>(null);
   const [status, setStatus] = useState("idle");
   const agentDrafts = useRef(new Map<string, string>());
-  const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
   const [showSessionModal, setShowSessionModal] = useState(false);
+  const modelOptions = ["gpt-5.2-codex", "gpt-5.1-codex-max", "gpt-5.1-codex-mini", "gpt-5.2"];
+  const [selectedModel, setSelectedModel] = useState(modelOptions[0]);
+  const [showLogDrawer, setShowLogDrawer] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("New task");
+  const activeWorkspace = useMemo(
+    () => workspaces.find((workspace) => workspace.id === activeWorkspaceId),
+    [activeWorkspaceId, workspaces]
+  );
+  const activeSession = useMemo(
+    () => sessions.find((session) => session.id === activeSessionId),
+    [activeSessionId, sessions]
+  );
+
+  useEffect(() => {
+    if (activeSession?.title) {
+      setTitleDraft(activeSession.title);
+    } else {
+      setTitleDraft("New task");
+    }
+  }, [activeSession?.id, activeSession?.title]);
 
   useEffect(() => {
     let active = true;
@@ -72,6 +80,7 @@ const App = () => {
   useEffect(() => {
     if (!activeWorkspaceId) {
       setSessions([]);
+      setActiveSessionId(undefined);
       return;
     }
     let active = true;
@@ -80,9 +89,7 @@ const App = () => {
       .then((data) => {
         if (!active) return;
         setSessions(data);
-        if (data[0]) {
-          setActiveSessionId(data[0].id);
-        }
+        setActiveSessionId((current) => current ?? data[0]?.id);
       })
       .catch(() => {
         if (!active) return;
@@ -160,16 +167,95 @@ const App = () => {
     return () => disconnect();
   }, [activeSessionId, client]);
 
-  const handleSend = useCallback(
-    async (text: string) => {
-      if (!activeSessionId) {
+  const handleSelectFolder = useCallback(async (): Promise<string | undefined> => {
+    try {
+      let folderPath: string | null = null;
+      if ((window as unknown as { __TAURI__?: unknown }).__TAURI__) {
+        const selection = await openDialog({
+          directory: true,
+          multiple: false,
+          title: "Select working folder"
+        });
+        folderPath = Array.isArray(selection) ? selection[0] ?? null : (selection as string | null);
+      } else {
+        alert("Folder picker requires the desktop app.");
+      }
+
+      if (!folderPath) {
         return;
       }
-      setMessages((prev) => [...prev, createMessage("user", text)]);
+      const existing = workspaces.find((workspace) => workspace.rootPath === folderPath);
+      if (existing) {
+        if (existing.id !== activeWorkspaceId) {
+          setActiveWorkspaceId(existing.id);
+          setActiveSessionId(undefined);
+          setMessages([]);
+          setEvents([]);
+          setPlanSteps(null);
+        }
+        return existing.id;
+      }
+      try {
+        const workspace = await client.createWorkspace({ rootPath: folderPath });
+        setWorkspaces((prev) => [workspace, ...prev]);
+        setActiveWorkspaceId(workspace.id);
+        setActiveSessionId(undefined);
+        setMessages([]);
+        setEvents([]);
+        setPlanSteps(null);
+        return workspace.id;
+      } catch (error) {
+        alert(`Failed to set workspace: ${(error as Error).message}`);
+        return;
+      }
+    } catch (error) {
+      console.warn("Folder picker unavailable", error);
+      return;
+    }
+  }, [activeWorkspaceId, client, workspaces]);
+
+  const handleSend = useCallback(
+    async (text: string): Promise<boolean> => {
+      const trimmed = text.trim();
+      if (!trimmed) {
+        return false;
+      }
+      let workspaceId = activeWorkspaceId;
+      if (!workspaceId) {
+        workspaceId = await handleSelectFolder();
+      }
+      if (!workspaceId) {
+        return false;
+      }
+      let sessionId = activeSessionId;
+      if (!sessionId) {
+        try {
+          const title = trimmed.length > 64 ? `${trimmed.slice(0, 61)}...` : trimmed;
+          const session = await client.createSession({ workspaceId, title });
+          setSessions((prev) => [session, ...prev]);
+          setActiveSessionId(session.id);
+          setMessages([]);
+          setEvents([]);
+          setPlanSteps(null);
+          setTitleDraft(session.title);
+          sessionId = session.id;
+        } catch (error) {
+          console.warn("Failed to create session", error);
+          return false;
+        }
+      }
+      setMessages((prev) => [...prev, createMessage("user", trimmed)]);
       setStatus("running");
-      await client.sendMessage({ sessionId: activeSessionId, message: text });
+      try {
+        await client.sendMessage({ sessionId, message: trimmed, model: selectedModel });
+        return true;
+      } catch (error) {
+        console.warn("Failed to send message", error);
+        setStatus("error");
+        return false;
+      }
     },
-    [activeSessionId, client]
+    [activeSessionId, activeWorkspaceId, client, handleSelectFolder, selectedModel]
   );
 
   const handleDecision = useCallback(
@@ -189,24 +275,16 @@ const App = () => {
     [activeSessionId, client, pendingApproval]
   );
 
-  const handleNewWorkspace = useCallback(() => {
-    setShowWorkspaceModal(true);
-  }, []);
-
-  const handleCreateWorkspace = useCallback(
-    async (input: { name?: string; rootPath: string }) => {
-      const workspace = await client.createWorkspace(input);
-      setWorkspaces((prev) => [workspace, ...prev]);
-      setActiveWorkspaceId(workspace.id);
-      setShowWorkspaceModal(false);
-    },
-    [client]
-  );
-
-  const handleNewSession = useCallback(() => {
-    if (!activeWorkspaceId) return;
+  const handleNewSession = useCallback(async () => {
+    let workspaceId = activeWorkspaceId;
+    if (!workspaceId) {
+      workspaceId = await handleSelectFolder();
+    }
+    if (!workspaceId) {
+      return;
+    }
     setShowSessionModal(true);
-  }, [activeWorkspaceId]);
+  }, [activeWorkspaceId, handleSelectFolder]);
 
   const handleCreateSession = useCallback(
     async (title?: string) => {
@@ -217,6 +295,7 @@ const App = () => {
       setMessages([]);
       setEvents([]);
       setPlanSteps(null);
+      setTitleDraft(session.title);
       setShowSessionModal(false);
     },
     [activeWorkspaceId, client]
@@ -237,9 +316,18 @@ const App = () => {
     setPlanSteps(null);
   }, []);
 
-  const toggleFilter = useCallback((key: string) => {
-    setFilters((prev) => ({ ...prev, [key]: !prev[key] }));
-  }, []);
+  const handleTitleChange = useCallback(
+    (next: string) => {
+      setTitleDraft(next);
+      if (!activeSessionId) {
+        return;
+      }
+      setSessions((prev) =>
+        prev.map((session) => (session.id === activeSessionId ? { ...session, title: next } : session))
+      );
+    },
+    [activeSessionId]
+  );
 
   return (
     <div className="app-shell">
@@ -250,7 +338,6 @@ const App = () => {
         activeSessionId={activeSessionId}
         onSelectWorkspace={handleWorkspaceSelect}
         onSelectSession={handleSessionSelect}
-        onNewWorkspace={handleNewWorkspace}
         onNewSession={handleNewSession}
       />
 
@@ -258,37 +345,26 @@ const App = () => {
         messages={messages}
         assistantDraft={assistantDraft}
         planSteps={planSteps}
-        status={status}
         onSend={handleSend}
+        onSelectFolder={handleSelectFolder}
+        selectedFolder={activeWorkspace?.rootPath}
+        models={modelOptions}
+        selectedModel={selectedModel}
+        onSelectModel={setSelectedModel}
+        title={titleDraft}
+        onTitleChange={handleTitleChange}
       />
 
       <TimelinePanel
         events={events}
-        filters={filters}
-        onToggleFilter={toggleFilter}
-        selectedEvent={selectedEvent}
-        onSelectEvent={setSelectedEvent}
+        status={status}
+        sessionTitle={activeSession?.title}
+        onOpenLogs={() => setShowLogDrawer(true)}
+        workingFolder={activeWorkspace?.rootPath}
       />
-
-      <footer className="status-bar">
-        <div className="status-left">
-          <span className="status-dot" />
-          <span>Session: {activeSessionId ? "Active" : "No session"}</span>
-        </div>
-        <div className="status-right">
-          <span>Scope: Workspace only</span>
-        </div>
-      </footer>
 
       {pendingApproval && (
         <ApprovalModal approval={pendingApproval} onDecision={handleDecision} />
-      )}
-
-      {showWorkspaceModal && (
-        <WorkspaceModal
-          onSubmit={handleCreateWorkspace}
-          onClose={() => setShowWorkspaceModal(false)}
-        />
       )}
 
       {showSessionModal && (
@@ -297,6 +373,12 @@ const App = () => {
           onClose={() => setShowSessionModal(false)}
         />
       )}
+
+      <LogDrawer
+        open={showLogDrawer}
+        onClose={() => setShowLogDrawer(false)}
+        events={events}
+      />
     </div>
   );
 };
